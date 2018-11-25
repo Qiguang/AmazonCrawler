@@ -2,6 +2,7 @@ javascript:
 function init() {
     maxRowsInSheet = 10000;
     maxSimultaneousCount = 10;
+    crawlreviewedListingOnly = true;
     simultaneousCount = 0;
     tradeMarksIndex = 0;
     storeIndex = 0;
@@ -23,6 +24,7 @@ function fetchFrom(url, handler, onError, meta) {
     fetch(url).then(function(response) {
         if (response.ok) {
             response.text().then((data) => {
+                simultaneousCount--;
                 handler(data, meta)
             })
         } else {
@@ -35,7 +37,6 @@ function fetchFrom(url, handler, onError, meta) {
 var parser;
 
 function handler(data, meta) {
-    simultaneousCount--;
     var doc = parser.parseFromString(data, "text/html");
     switch (meta.handlerStep) {
         case 1:
@@ -71,7 +72,7 @@ function handler(data, meta) {
                 log('from ' + meta.url);
             }
             break;
-        case 3:
+        case 3: /* get store performance */
             store = doc.getElementById('storefront-link').getElementsByTagName('a')[0];
             if (!store) {
                 break;
@@ -123,7 +124,7 @@ function handler(data, meta) {
                 }
             } else {
                 log(meta.theTradeMark);
-                log('got ratings by time failed');
+                log('get ratings by time failed');
             }
             store = doc.getElementById('storefront-link').getElementsByTagName('a')[0];
             storeLink = store.href;
@@ -142,7 +143,7 @@ function handler(data, meta) {
             fetchFrom(storeLink, handler, null, meta);
             meta.handlerStep = 4;
             break;
-        case 4:
+        case 4: /* get listing count */
             listingCount = doc.getElementById('s-result-count');
             if (listingCount) {
                 log(listingCount = listingCount.innerText);
@@ -159,19 +160,86 @@ function handler(data, meta) {
                 log(result[1]);
                 log(result[3]);
             }
-            crawlStoreList(doc);
+            meta.listingsMeta = {};
+            meta.listingsMeta.products = [];
+            crawlStoreList(doc, meta.listingsMeta);
             var nextPage = doc.getElementById('pagnNextLink');
             if (nextPage) {
                 fetchFrom(nextPage.href, handler, null, meta);
                 meta.handlerStep = 5;
+            } else if (meta.listingsMeta.products.length){
+                fetchFrom(meta.listingsMeta.products[meta.listingsMeta.products.length-1].detailPageLink, handler, null, meta);
+                meta.handlerStep = 6;
+            } else {
+                log('no products available for ' + meta.storeName);
             }
             break;
         case 5:
-            crawlStoreList(doc);
+            crawlStoreList(doc, meta.listingsMeta);
             var nextPage = doc.getElementById('pagnNextLink');
             if (nextPage) {
                 fetchFrom(nextPage.href, handler, null, meta);
+            } else if (meta.listingsMeta.products.length){
+                fetchFrom(meta.listingsMeta.products[meta.listingsMeta.products.length-1].detailPageLink, handler, null, meta);
+                meta.handlerStep = 6;
+            } else {
+                log('no products available for ' + meta.storeName);
             }
+            break;
+        case 6: /* crawl detail page (rank, catagory)*/
+            log(meta.url);
+            var salesRank = doc.getElementById('SalesRank');
+            if (salesRank) {
+                meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank.innerText;
+            } else if ((salesRank = doc.getElementsByClassName('prodDetSectionEntry')) && salesRank.length){
+                for(element in salesRank) {
+                    if (salesRank[element].innerText == 'Best Sellers Rank') {
+                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank[element].nextElementSibling.innerText.replace(/\s/g, '');
+                    }
+                    if (salesRank[element].innerText == 'Date first listed on Amazon') {
+                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].listDate = salesRank[element].nextElementSibling.innerText;
+                    }
+                }
+            }
+            var catagory = doc.getElementById('wayfinding-breadcrumbs_container');
+            if (catagory) {
+                meta.listingsMeta.products[meta.listingsMeta.products.length-1].catagory = catagory.innerText.replace(/\s/g, '');
+            }
+            var reviewLink;
+            if (reviewLink = meta.listingsMeta.products[meta.listingsMeta.products.length-1].reviewLink) {
+                fetchFrom(reviewLink, handler, null, meta);
+                meta.handlerStep = 7;
+            } else {
+                saveProductAndStartNext(meta);
+            }
+            break;
+        case 7: /* crawl review page */
+            var reviews = doc.getElementById('cm_cr-review_list');
+            if (reviews) {
+                var dates = reviews.getElementsByClassName('review-date');
+                meta.listingsMeta.products[meta.listingsMeta.products.length-1].lastReviewDate = dates[0].innerText;
+                var lastPage = doc.getElementsByClassName('a-pagination');
+                if (lastPage.length) {
+                    lastPage = lastPage[0].lastElementChild.previousElementSibling.innerText;
+                    fetchFrom(meta.url.slice(0, meta.url.lastIndexOf('=')+1)+lastPage, handler, null, meta);
+                    meta.handlerStep = 8;
+                } else {
+                    meta.listingsMeta.products[meta.listingsMeta.products.length-1].firstReviewDate = dates[dates.length-1].innerText;
+                    saveProductAndStartNext(meta);
+                }
+            } else {
+                log('cannot find reviews for :');
+                log(meta.url);
+                saveProductAndStartNext(meta);
+            }
+            break;
+        case 8:
+            var reviews = doc.getElementById('cm_cr-review_list');
+            if (reviews) {
+                var dates = reviews.getElementsByClassName('review-date');
+                meta.listingsMeta.products[meta.listingsMeta.products.length-1].firstReviewDate = dates[dates.length-1].innerText;
+            }
+            saveProductAndStartNext(meta);
             break;
     }
     var tradeMark;
@@ -202,48 +270,70 @@ function handler(data, meta) {
 }
 var count;
 
-function crawlStoreList(doc) {
+function saveProductAndStartNext(meta) {
+    var storeName = meta.listingsMeta.storeName;
+    var productMeta = meta.listingsMeta.products[meta.listingsMeta.products.length-1];
+    addRow2ProductSheet(++count, productMeta.title, productMeta.price, productMeta.reviewCount, productMeta.stars, productMeta.trademark, storeName, productMeta.detailPageLink, productMeta.catagory, productMeta.salesRank, productMeta.listDate, productMeta.firstReviewDate, productMeta.lastReviewDate);
+    log(count);
+    meta.listingsMeta.products.pop();
+    if (meta.listingsMeta.products.length){
+        fetchFrom(meta.listingsMeta.products[meta.listingsMeta.products.length-1].detailPageLink, handler, null, meta);
+        meta.handlerStep = 6;
+    }
+}
+function crawlStoreList(doc, listingsMeta) {
     var items = doc.getElementsByClassName('s-item-container');
-    var storeName = doc.getElementById('s-result-count').firstElementChild.innerText;
+    listingsMeta.storeName = doc.getElementById('s-result-count').firstElementChild.innerText;
     for (var i = 0; i < items.length; i++) {
-        elements = items[i].getElementsByClassName('s-access-detail-page');
+        var productMeta = {};
+        elements = items[i].getElementsByClassName('a-icon-star');
+        productMeta.stars = elements.length ? elements[0].innerText : undefined;
+        if (crawlreviewedListingOnly && !productMeta.stars) {
+            continue;
+        }
+        var elements = items[i].getElementsByClassName('s-access-detail-page');
         if (elements.length) {
-            var title = elements[0].title;
-            var detailPageLink = elements[0].href;
+            productMeta.title = elements[0].title;
+            productMeta.detailPageLink = elements[0].href;
+            var index = productMeta.detailPageLink.indexOf('ref='); 
+            if (index != -1) {
+                productMeta.detailPageLink = productMeta.detailPageLink.slice(0, index);
+            }
             elements = items[i].getElementsByClassName('a-size-small a-color-secondary');
             if (elements.length > 1 && elements[0].innerText.match(/^by/)) {
-                var trademark = elements[1].innerText;
+                productMeta.trademark = elements[1].innerText;
             }
             elements = items[i].getElementsByClassName('a-offscreen');
-            var price = elements.length ? elements[0].innerText : undefined;
-            elements = items[i].getElementsByClassName('a-icon-star');
-            var stars = elements.length ? elements[0].innerText : undefined;
+            productMeta.price = elements.length ? elements[0].innerText : undefined;
             elements = items[i].getElementsByClassName('a-row a-spacing-none');
-            var reviewCount = undefined;
-            if (stars && elements) {
+            productMeta.reviewCount = undefined;
+            if (productMeta.stars && elements) {
                 elements = elements[elements.length - 1].getElementsByClassName('a-size-small a-link-normal a-text-normal');
                 var reviews = elements ? elements[0] : undefined;
                 if (reviews && reviews.innerText.match(/^[^A-Za-z]/)) {
-                    reviewCount = reviews.innerText;
-                    reviewLink = reviews.href;
+                    productMeta.reviewCount = reviews.innerText;
+                    productMeta.reviewLink = productMeta.detailPageLink.replace(/(?<=com\/).*(?=\/B\d)/, 'product-reviews') + 'ref=cm_cr_arp_d_viewopt_srt?ie=UTF8&reviewerType=all_reviews&sortBy=recent&pageNumber=1';
                 }
             }
-            addRow2ProductSheet(++count, title, price, reviewCount, stars, trademark, storeName, detailPageLink, reviewLink);
-            log(count);
+            listingsMeta.products.push(productMeta);
         }
     }
 }
 
-function addRow2ProductSheet(index, title, price, reviewCount, stars, trademark, storeName, detailPageLink, reviewLink) {
+function addRow2ProductSheet(index, title, price, reviewCount, stars, trademark, storeName, detailPageLink, catagory, salesRank, listDate, firstReviewDate, lastReviewDate) {
     var row = [];
     row.push(index);
     row.push(price);
     row.push(reviewCount);
     row.push(stars);
+    row.push(firstReviewDate);
+    row.push(lastReviewDate);
+    row.push(salesRank);
+    row.push(listDate);
+    row.push(catagory);
     row.push(trademark);
     row.push(storeName);
     row.push(detailPageLink);
-    row.push(reviewLink);
     row.push(title);
     productArray.push(row);
     if (productArray.length >= maxRowsInSheet) {
@@ -354,7 +444,7 @@ var storeArray;
 
 function initSheet() {
     productArray = [
-        ['index', 'price', 'reviewCount', 'stars', 'trademark', 'storeName', 'detailPageLink', 'reviewLink', 'title']
+        ['index', 'price', 'reviewCount', 'stars', 'firstReviewDate', 'lastReviewDate', 'salesRank', 'listDate', 'catagory', 'trademark', 'storeName', 'detailPageLink', 'title']
     ];
     storeArray = [
         ['index', 'storeName', 'listingCount', '_30daysCount', '_30daysPositive', '_90daysCount', '_90daysPositive', '_12monthsCount', '_12monthsPositive', 'lifetimeCount', 'lifetimePositive', 'storeLink']
