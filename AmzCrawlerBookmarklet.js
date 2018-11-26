@@ -1,8 +1,8 @@
 javascript:
 function init() {
-    maxRowsInSheet = 10000;
-    maxSimultaneousCount = 10;
-    crawlreviewedListingOnly = true;
+    maxRowsInSheet = prompt('单个Excel表最大包含的行数：', 100000);
+    maxSimultaneousCount = prompt('最大连接个数（数字越大，抓取越快，越耗电）：',100);
+    crawlreviewedListingOnly = prompt('只抓取有review的listing(true or false)：', true);
     simultaneousCount = 0;
     tradeMarksIndex = 0;
     storeIndex = 0;
@@ -28,7 +28,7 @@ function fetchFrom(url, handler, onError, meta) {
                 handler(data, meta)
             })
         } else {
-            log(url);
+            log('ERRORRRRRRRRRRRRRRRRRRRRRR: '+url);
             simultaneousCount--;
         }
     });
@@ -44,12 +44,9 @@ function handler(data, meta) {
             else {
                 regex1stTry = new RegExp('<a ((?!href).)*href="([^"]*)"><h2((?!<span).)*<span((?!<span).)*<span[^>]*>' + meta.theTradeMark + '[^<]*<\/span>', "i");
                 regex2ndTry = new RegExp('<a class="a-link-normal\\s+s-access-detail-page\\s+s-color-twister-title-link\\s+a-text-normal"\\s+title="((?!' + meta.theTradeMark + '))*' + meta.theTradeMark + '[^"]*"\\s+href="([^"]*)"');
-                if (result = regex1stTry.exec(data)) {
+                if ((result = regex1stTry.exec(data)) || (result = regex2ndTry.exec(data))) {
                     fetchFrom(result[2] + '&th=1&psc=1', handler, null, meta);
                     meta.handlerStep = 2;
-                } else if (result = regex2ndTry.exec(data)) {
-                    log(result[1]);
-                    log(result[2]);
                 } else {
                     log(meta.theTradeMark);
                     log('get seller failed');
@@ -61,9 +58,6 @@ function handler(data, meta) {
             var link;
             if ((merchantInfo = doc.getElementById('merchantID')) && merchantInfo.value) {
                 var link = 'https://www.amazon.com/sp?_encoding=UTF8&seller=' + merchantInfo.value;
-                log(meta.theTradeMark);
-                log('store link');
-                log(link);
                 fetchFrom(link, handler, null, meta);
                 meta.handlerStep = 3;
             } else {
@@ -187,17 +181,21 @@ function handler(data, meta) {
             }
             break;
         case 6: /* crawl detail page (rank, catagory)*/
-            log(meta.url);
             var salesRank = doc.getElementById('SalesRank');
             if (salesRank) {
-                meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank.innerText;
+                var uselessTag = salesRank.getElementsByTagName('style');
+                if (uselessTag.length) {
+                    salesRank.removeChild(uselessTag[0]);
+                }
+                meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank.innerText.replace(/\s\s/g, '').replace(/AmazonBestSellersRank:/, '');
             } else if ((salesRank = doc.getElementsByClassName('prodDetSectionEntry')) && salesRank.length){
                 for(element in salesRank) {
-                    if (salesRank[element].innerText == 'Best Sellers Rank') {
-                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank[element].nextElementSibling.innerText.replace(/\s/g, '');
+                    var rank = salesRank[element].innerText;
+                    if (rank && -1 != rank.search('Best Sellers Rank')) {
+                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].salesRank = salesRank[element].nextElementSibling.innerText.replace(/\s\s/g, '');
                     }
                     if (salesRank[element].innerText == 'Date first listed on Amazon') {
-                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].listDate = salesRank[element].nextElementSibling.innerText;
+                        meta.listingsMeta.products[meta.listingsMeta.products.length-1].listDate = salesRank[element].nextElementSibling.innerText.replace(/\s\s/g, '');
                     }
                 }
             }
@@ -274,12 +272,12 @@ function saveProductAndStartNext(meta) {
     var storeName = meta.listingsMeta.storeName;
     var productMeta = meta.listingsMeta.products[meta.listingsMeta.products.length-1];
     addRow2ProductSheet(++count, productMeta.title, productMeta.price, productMeta.reviewCount, productMeta.stars, productMeta.trademark, storeName, productMeta.detailPageLink, productMeta.catagory, productMeta.salesRank, productMeta.listDate, productMeta.firstReviewDate, productMeta.lastReviewDate);
-    log(count);
     meta.listingsMeta.products.pop();
     if (meta.listingsMeta.products.length){
         fetchFrom(meta.listingsMeta.products[meta.listingsMeta.products.length-1].detailPageLink, handler, null, meta);
         meta.handlerStep = 6;
     }
+    log('saved: '+ count + '; linkingNum: ' + simultaneousCount);
 }
 function crawlStoreList(doc, listingsMeta) {
     var items = doc.getElementsByClassName('s-item-container');
@@ -385,6 +383,7 @@ function handleDrop(e) {
     for (i = 0, f = files[i]; i != files.length; ++i) {
         var reader = new FileReader();
         var name = f.name;
+        log(name);
         reader.onload = function(e) {
             init();
             var data = e.target.result; /* if binary string, read with type 'binary' */
