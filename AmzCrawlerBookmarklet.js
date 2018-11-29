@@ -5,7 +5,7 @@ function init() {
     crawlreviewedListingOnly = prompt('只抓取有review的listing(true or false)：', true);
     MAX_RETRY_COUNT = 2;
     retryingCount = 0;
-    domainName = 'https://www.amazon.co.uk';
+    domainName = 'https://www.amazon.com';
     simultaneousCount = 0;
     tradeMarksIndex = 0;
     storeIndex = 0;
@@ -67,14 +67,17 @@ function handler(data, meta) {
         case 1:
             if (doc.getElementById('noResultsTitle')) log(meta.theTradeMark + ' did not match any products');
             else {
-                regex1stTry = new RegExp('<a ((?!href).)*href="([^"]*)"><h2((?!<span).)*<span((?!<span).)*<span[^>]*>' + meta.theTradeMark + '[^<]*<\/span>', "i");
-                regex2ndTry = new RegExp('<a class="a-link-normal\\s+s-access-detail-page\\s+s-color-twister-title-link\\s+a-text-normal"\\s+title="((?!' + meta.theTradeMark + '))*' + meta.theTradeMark + '[^"]*"\\s+href="([^"]*)"');
-                if ((result = regex1stTry.exec(data)) || (result = regex2ndTry.exec(data))) {
-                    fetchFrom(result[2] + '?th=1&psc=1', handler, null, meta);
-                    meta.handlerStep = 2;
-                } else {
-                    log(meta.theTradeMark);
-                    log('get seller failed');
+                var result0 = doc.getElementById('result_0');
+                var searchTheTrademark = result0.getElementsByClassName('a-color-secondary'); 
+                for (element of searchTheTrademark) {
+                    if (element.innerText.toLowerCase().includes(meta.theTradeMark.toLowerCase())) {
+                        fetchFrom(result0.getElementsByClassName('s-access-detail-page')[0].href + '?th=1&psc=1', handler, null, meta);
+                        meta.handlerStep = 2;
+                        break;
+                    }
+                }
+                if (meta.handlerStep == 1) {
+                    log(meta.theTradeMark + ' get seller failed');
                 }
             }
             break;
