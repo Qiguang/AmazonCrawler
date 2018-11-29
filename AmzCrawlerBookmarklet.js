@@ -5,7 +5,7 @@ function init() {
     crawlreviewedListingOnly = prompt('只抓取有review的listing(true or false)：', true);
     MAX_RETRY_COUNT = 2;
     retryingCount = 0;
-    domainName = 'https://www.amazon.com';
+    domainName = window.location.origin;
     simultaneousCount = 0;
     tradeMarksIndex = 0;
     storeIndex = 0;
