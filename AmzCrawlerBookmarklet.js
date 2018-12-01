@@ -1,7 +1,7 @@
 javascript:
 function init() {
-    MAX_ROWS_IN_SHEET = prompt('单个Excel表最大包含的行数：', 30000);
-    MAX_SIMULTANEOUS_COUNT = prompt('最大连接个数（数字越大，抓取越快，越耗电）：',50);
+    MAX_ROWS_IN_SHEET = parseInt(prompt('单个Excel表最大包含的行数：', 30000));
+    MAX_SIMULTANEOUS_COUNT = parseInt(prompt('最大连接个数（数字越大，抓取越快，越耗电）：',50));
     crawlreviewedListingOnly = prompt('只抓取有review的listing(true or false)：', true);
     MAX_RETRY_COUNT = 2;
     retryingCount = 0;
@@ -67,16 +67,34 @@ function handler(data, meta) {
         case 1:
             if (doc.getElementById('noResultsTitle')) log(meta.theTradeMark + ' did not match any products');
             else {
-                var result0 = doc.getElementById('result_0');
-                var searchTheTrademark = result0.getElementsByClassName('a-color-secondary'); 
-                for (element of searchTheTrademark) {
-                    if (element.innerText.toLowerCase().includes(meta.theTradeMark.toLowerCase())) {
-                        fetchFrom(result0.getElementsByClassName('s-access-detail-page')[0].href + '?th=1&psc=1', handler, null, meta);
+                var results = doc.getElementById('s-results-list-atf');
+                var result = results.firstElementChild;
+                var findIt = false;
+                while (result) {
+                    var searchTheTrademark = result.getElementsByClassName('a-color-secondary'); 
+                    if (searchTheTrademark.length) {
+                        for (element of searchTheTrademark) {
+                            if (element.innerText.toLowerCase().includes(meta.theTradeMark)) {
+                                findIt = true;
+                                break;
+                            }
+                        }
+                    } else {
+                        if (result.getElementsByClassName('s-access-detail-page')[0].innerText.toLowerCase().includes(meta.theTradeMark)) {
+                            findIt = true;
+                        }
+                        
+                    }
+                    if (findIt) {
+                        fetchFrom(result.getElementsByClassName('s-access-detail-page')[0].href + '?th=1&psc=1', handler, null, meta);
                         meta.handlerStep = 2;
                         break;
+
+                    } else {
+                        result = result.nextElementSibling;
                     }
                 }
-                if (meta.handlerStep == 1) {
+                if (!findIt) {
                     log(meta.theTradeMark + ' get seller failed');
                 }
             }
@@ -172,7 +190,7 @@ function handler(data, meta) {
             listingCount = doc.getElementById('s-result-count');
             if (listingCount) {
                 log(listingCount = listingCount.innerText);
-                var result = listingCount.match(/[^\s]+/);
+                var result = listingCount.match(/[^\s]+\s+result/);
                 if (result) {
                     listingCount = result[0];
                 }
@@ -327,7 +345,7 @@ function crawlStoreList(doc, listingsMeta) {
         var productMeta = {};
         elements = items[i].getElementsByClassName('a-icon-star');
         productMeta.stars = elements.length ? elements[0].innerText.replace(' out of 5 stars', ''): undefined;
-        if (crawlreviewedListingOnly && !productMeta.stars) {
+        if (crawlreviewedListingOnly == 'true' && !productMeta.stars) {
             continue;
         }
         var elements = items[i].getElementsByClassName('s-access-detail-page');
