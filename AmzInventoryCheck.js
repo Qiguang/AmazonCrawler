@@ -1,8 +1,9 @@
 javascript: (function () {var log = console.log;
-var logData = console.log;
+/* var logData = console.log; */
+logData = log2Modal;
 var MAX_TIMEOUT_COUNT = 10;
 saved = 0;
-function saveForLater(callback) {
+function saveAllForLater(callback) {
 	var listings = getListingsFrom('activeCartViewForm');
 	for(listing of listings) {
 		var saveForLaterButtonFinder = listing.getElementsByTagName('input');
@@ -20,7 +21,7 @@ function saveForLater(callback) {
 					()=>{
 						saved++;
 						log(`saved for later ${saved}`);
-						saveForLater(callback);
+						saveAllForLater(callback);
 					});
 				return;
 			}
@@ -42,7 +43,7 @@ function getListingsFrom(cartId) {
 function move2cartAndCheckInventory() {
 	/* move to cart */
 	while(products2Check.length) {
-		log(`${products2Check.length} products remaining to check`);
+		logData(`${products2Check.length} products remaining to check`);
 		var product = products2Check.pop();
 		var ASIN = product.getAttribute('data-asin');
 		var move2cartButtonFinder = product.getElementsByTagName('input');
@@ -84,11 +85,10 @@ function move2cartAndCheckInventory() {
 								function() {
 									quantityBox = document.getElementsByName('quantityBox')[0];
 									var quantity = quantityBox.value;
-									logData(`ASIN ${ASIN}`);
-									logData(`quantity ${quantity}`);
+									logData(`ASIN ${ASIN}, quantity ${quantity}`);
 									insert2sheet(ASIN, quantity);
 									/* next product */
-									saveForLater(move2cartAndCheckInventory);
+									saveAllForLater(move2cartAndCheckInventory);
 								});
 						});
 					});
@@ -98,7 +98,7 @@ function move2cartAndCheckInventory() {
 		log(`Move to Cart button not found for ${ASIN}`);
 		insert2sheet(ASIN, 0);
 	}
-	log(`mission complete!`);
+	logData(`mission complete!`);
 	saveXlsx();
 }
 function observeNodeInsertion(node, callback) {
@@ -220,36 +220,76 @@ function injectModule(src, callback) {
     document.head.appendChild(e);
 }
 function run () {
-	window.scrollTo(0,document.body.scrollHeight);  /* scroll to bottom to load all ASINs */
-	var prevState = {notLoading: false, productCount: getListingsFrom('sc-saved-cart').length};
-	whenMotionDone(
-		()=>{
-			var notLoading = document.getElementsByClassName('a-row a-spacing-top-medium sc-list-loading-spinner')[0].classList.contains('aok-hidden');
-			var productCount = getListingsFrom('sc-saved-cart').length;
-			log(`notLoading:${notLoading}, prevState.notLoading:${prevState.notLoading}, productCount:${productCount}, prevState.productCount:${prevState.productCount}`);
-			if (notLoading && prevState.notLoading && (productCount == prevState.productCount)) {
-				return true;				
-			} else {
-				prevState.notLoading = notLoading;
-				prevState.productCount = productCount;
-				return false;
-			}
-		},
-		()=>{
-			window.scrollTo(0, 0);
-			saveForLater(function() {
-				products2Check = getListingsFrom('sc-saved-cart');
-				if (products2Check.length) {
-					move2cartAndCheckInventory(products2Check);
-				} else {
-					log('waiting listing not found');
-				}
-			});		
-		});
+    saveAllForLater(()=>{
+        var saveForLaterListings = document.getElementsByClassName('a-row sc-list-body sc-java-remote-feature')[0];
+        var prevState = {notLoading: false, productCount: getListingsFrom('sc-saved-cart').length, scrollY: window.scrollY};
+        saveForLaterListings.scrollIntoView({block: "end"});
+        whenMotionDone(
+            ()=>{
+                var loadingSpinner = document.getElementsByClassName('a-row a-spacing-top-medium sc-list-loading-spinner')[0];
+                var notLoading = loadingSpinner.classList.contains('aok-hidden');
+                var productCount = getListingsFrom('sc-saved-cart').length;
+                log(`notLoading:${notLoading}, prevState.notLoading:${prevState.notLoading}, productCount:${productCount}, prevState.productCount:${prevState.productCount}, scrollY:${window.scrollY}, prevState.scrollY:${prevState.scrollY}`);
+                if (notLoading && prevState.notLoading && (productCount == prevState.productCount) && (window.scrollY == prevState.scrollY)) {
+                    return true;				
+                } else {
+                    prevState.notLoading = notLoading;
+                    prevState.productCount = productCount;
+                    prevState.scrollY = window.scrollY;
+                    saveForLaterListings.scrollIntoView({block: "end"});
+                    return false;
+                }
+            },
+            ()=>{
+                window.scrollTo(0, 0);
+                products2Check = getListingsFrom('sc-saved-cart');
+                if (products2Check.length) {
+                    move2cartAndCheckInventory(products2Check);
+                } else {
+                    log('get listings from sc-saved-cart failed');
+                }
+            });
+    });
+}
+function showModal(){
+    var modal = document.createElement('div');
+    modal.id = 'modal';
+    modal.className = 'modal';
+    var modalContent = document.createElement('div');
+    modalContent.className = 'modal-content';
+    var span = document.createElement('span');
+    span.className = 'close';
+    span.innerText = 'AmazonInventoryTest';
+    modalMainLine = document.createElement('h1');
+    modalMainLine.id = 'modalLine';
+    modalContent.appendChild(span);
+    modalContent.appendChild(modalMainLine);
+    modal.appendChild(modalContent);
+    modal.style.display = 'block'; /* Hidden by default */
+    modal.style.position = 'fixed'; /* Stay in place */
+    modal.style.zIndex = '1000'; /* Sit on top */
+    modal.style.left = '0';
+    modal.style.top = '0';
+    modal.style.width = '100%'; /* Full width */
+    modal.style.height = '100%'; /* Full height */
+    modal.style.overflow = 'auto'; /* Enable scroll if needed */
+    modal.style.backgroundColor = 'rgb(0,0,0)'; /* Fallback color */
+    modal.style.backgroundColor = 'rgba(0,0,0,0.4)'; /* Black w/ opacity */
+    modalContent.style.backgroundColor = '#fefefe';
+    modalContent.style.margin = '1% auto'; /* 15% from the top and centered */
+    modalContent.style.padding = '20px';
+    modalContent.style.border = '1px solid #888';
+    modalContent.style.width = '80%'; /* Could be more or less, depending on screen size */
+    document.body.appendChild(modal);
+}
+function log2Modal(theLog) {
+    modalMainLine.innerText = theLog;
 }
 var products2Check;
+showModal();
 injectModule('https://unpkg.com/xlsx/dist/xlsx.full.min.js', function() {
     log('xlsx injected');
+    logData('Ready!');
     document.body.addEventListener('dragover', handleDragover, false);
     document.body.addEventListener('dragenter', handleDragover, false);
     document.body.addEventListener('drop', handleDrop, false);
