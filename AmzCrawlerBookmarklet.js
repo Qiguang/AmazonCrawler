@@ -1,7 +1,7 @@
 javascript:
 function init() {
     MAX_ROWS_IN_SHEET = parseInt(prompt('单个Excel表最大包含的行数：', 30000));
-    MAX_SIMULTANEOUS_COUNT = parseInt(prompt('最大连接个数（数字越大，抓取越快，越耗电）：',50));
+    MAX_SIMULTANEOUS_COUNT = parseInt(prompt('最大连接个数：',20));
     crawlreviewedListingOnly = prompt('只抓取有review的listing(true or false)：', true);
     MAX_RETRY_COUNT = 2;
     retryingCount = 0;
@@ -44,17 +44,19 @@ function fetchFrom(url, handler, onError, meta) {
             }
             if (meta.retryCount <= MAX_RETRY_COUNT) {
                 retryingCount++;
-                setTimeout(function(){
-                    fetchFrom(url, handler, onError, meta);
-                    retryingCount--;
-                }, meta.retryCount*60*1000*30);
+                fetch(domainName).then(function(response) {
+                    setTimeout(function(){
+                        fetchFrom(url, handler, onError, meta);
+                        retryingCount--;
+                    }, meta.retryCount*60*1000*30);
+                });
             } else {
                 log('retry failed: '+url);
                 if (!simultaneousCount && !retryingCount) {
                     saveFiles();
                 }
             }
-            log('retry count: '+meta.retryCount);
+            log('retry count: '+meta.retryCount + '; ' + Date());
         }
     });
     simultaneousCount++;
@@ -86,7 +88,7 @@ function handler(data, meta) {
                         
                     }
                     if (findIt) {
-                        fetchFrom(result.getElementsByClassName('s-access-detail-page')[0].href + '?th=1&psc=1', handler, null, meta);
+                        fetchFrom(result.getElementsByClassName('s-access-detail-page')[0].href + '/?th=1&psc=1', handler, null, meta);
                         meta.handlerStep = 2;
                         break;
 
@@ -253,7 +255,7 @@ function handler(data, meta) {
                 meta.listingsMeta.products[meta.listingsMeta.products.length-1].catagory = catagory.innerText.replace(/\s/g, '');
             }
             var fulfilledByMerchant = doc.getElementById('merchant-info');
-            if (fulfilledByMerchant && (fulfilledByMerchant.innerText.search('Fulfilled by Amazon') != -1)) {
+            if (fulfilledByMerchant && fulfilledByMerchant.innerText.includes('Amazon')) {
                 fulfilledByMerchant = 'No';
             } else {
                 fulfilledByMerchant = 'Yes';
