@@ -7,11 +7,16 @@ newWindow.document.write(`
             <head>
                 <title>[Autoreload] ${urlWithoutFragment}</title>
                 <script type="text/javascript">
+                    var firstRunFlag = true;
                     window.addEventListener("load",()=>{
                         var frame=document.getElementsByTagName("frame")[0];
                         frame.addEventListener("load",()=>{
                             console.log('loaded');
                             afterFrameLoad();
+                            if (!firstRunFlag) {
+                                run();
+                            }
+                            firstRunFlag = false;
                         },false);
                         frame.src="${urlWithoutFragment}";
                         ${inventoryTest.toString().match(/function[^{]+\{([\s\S]*)\}$/)[1]}
@@ -79,15 +84,46 @@ function inventoryTest() {
         return listingArr;
     }
     function weWant2Delete(ASIN) {
-        var row = findRowByAsin(ASIN);
-        if (row && sheet['B' + row].v != '1') {
+        var row = findRowOf(ASIN, inventorySheet);
+        if (row && inventorySheet['B' + row].v != '1') {
             return true;
         }
         return false;
     }
+    function deleteRow(row, sheet) {
+        var range = XLSX.utils.decode_range(sheet["!ref"]);
+        var lastRow = findLastRowOf(inventorySheet);
+        for(var R = row; R < lastRow; ++R){
+            for(var C = range.s.c; C <= range.e.c; ++C){
+                var column = XLSX.utils.encode_col(C);
+                sheet[column+R] = sheet[column+(R+1)];
+            }
+        }
+        range.e.r--;
+        sheet['!ref'] = XLSX.utils.encode_range(range.s, range.e);
+    }
+    function move2backlog(ASIN) {
+        var theRow = findRowOf(ASIN, inventorySheet);
+        if (theRow) {
+            if (!findRowOf(ASIN, backlogSheet)) {
+            /* the ASIN doesn't exist in backlogSheet, move to it */
+                var rowContent = [];
+                for (var column = 0; column <= XLSX.utils.decode_col(lastColumn); column++) {
+                    var theCell = inventorySheet[XLSX.utils.encode_col(column)+theRow];
+                    if (typeof theCell !== 'undefined') {
+                        rowContent[column] = theCell.v;
+                    }
+                    
+                }
+                XLSX.utils.sheet_add_aoa(backlogSheet, [rowContent], {origin: -1});
+            }
+            deleteRow(theRow, inventorySheet);
+        }
+
+    }
     function alreadyChecked(ASIN) {
-        var row = findRowByAsin(ASIN);
-        if (row && typeof sheet[lastColumn + row] !== 'undefined') {
+        var row = findRowOf(ASIN, inventorySheet);
+        if (row && typeof inventorySheet[lastColumn + row] !== 'undefined') {
             log(`${ASIN} already Checked`);
             return true;
         }
@@ -121,7 +157,11 @@ function inventoryTest() {
                                 return true;
                             }
                             return false;
-                        }, move2cartAndCheckInventory);
+                        }, 
+                        ()=>{
+                            move2backlog(ASIN);
+                            move2cartAndCheckInventory();
+                        });
                 } else {
                     move2cartAndCheckInventory();
                 }
@@ -154,9 +194,6 @@ function inventoryTest() {
                                 updateButton.click();
                             } else {
                                 log(`cannot find quantityBox for ${product}`);
-                                if (Document.readyState == 'loading') {
-                                    log(`loading`);
-                                }
                             }
                             var cart = Document.getElementById('activeCartViewForm');
                             observeNodeInsertion(cart, function () {
@@ -190,7 +227,7 @@ function inventoryTest() {
                                             quantity = quantityBox.value;
                                         }
                                         logData(`ASIN ${ASIN}, quantity ${quantity}`);
-                                        insertQuantity2Sheet(ASIN, quantity);
+                                        insertQuantity2InventorySheet(ASIN, quantity);
                                         /* next product */
                                         saveAllForLater(move2cartAndCheckInventory);
                                     });
@@ -200,7 +237,7 @@ function inventoryTest() {
                 }
             }
             log(`Move to Cart button not found for ${ASIN}`);
-            insertQuantity2Sheet(ASIN, 0);
+            insertQuantity2InventorySheet(ASIN, 0);
         }
         logData(`mission complete!`);
         saveXlsx();
@@ -226,14 +263,14 @@ function inventoryTest() {
         var timeoutCount = 0;
         var timer = setInterval(function(){
             timeoutCount++;
-            if(isDone()) {
+            if (Document.readyState == 'loading' || timeoutCount > MAX_TIMEOUT_COUNT) {
+                clearInterval(timer);
+                timeoutCount = 0;
+                log('wait motion done timeout or page reloaded');
+            } else if(isDone()) {
                 clearInterval(timer);
                 timeoutCount = 0;
                 callback();
-            } else if (timeoutCount > MAX_TIMEOUT_COUNT) {
-                clearInterval(timer);
-                timeoutCount = 0;
-                log('wait motion done timeout');
             }
         }, 1000);
     }
@@ -261,36 +298,44 @@ function inventoryTest() {
                 workbook = XLSX.read(data, {
                     type: 'binary'
                 });
-                var first_sheet_name = workbook.SheetNames[0]; /* Get worksheet */
-                sheet = workbook.Sheets[first_sheet_name];
-                if (sheet) {
+                var firstSheetName = workbook.SheetNames[0]; /* Get worksheet */
+                var secondSheetName = workbook.SheetNames[1]; /* Get worksheet */
+                inventorySheet = workbook.Sheets[firstSheetName];
+                backlogSheet = workbook.Sheets[secondSheetName];
+                if (!backlogSheet) {
+                    backlogSheet = XLSX.utils.aoa_to_sheet([[]]);
+                    XLSX.utils.book_append_sheet(workbook, backlogSheet, 'backlog');
+                }
+                if (inventorySheet && backlogSheet) {
                     logData('Running!');
-                    initSheet();
+                    initInventorySheet();
                     run();
+                } else {
+                    log(`get sheet from file failed: ${inventorySheet?true:false}, ${backlogSheet?true:false}`);
                 }
             };
             reader.readAsBinaryString(f);
         }
     }
-    function isSheetEmpty() {
-        if(sheet['!ref'] == undefined) {
-            /* the sheet is empty */
+    function isInventorySheetEmpty() {
+        if(inventorySheet['!ref'] == undefined) {
+            /* the inventorySheet is empty */
             log(`the file is empty`);
             return true;
         }
     }
-    function initSheet() {
-        if(isSheetEmpty()) {
+    function initInventorySheet() {
+        if(isInventorySheetEmpty()) {
             generateHeaderLine();
         } else {
-            var ref = sheet['!ref'];
+            var ref = inventorySheet['!ref'];
             lastColumn = ref.match(/:([a-zA-Z]+)/)[1];
-            XLSX.utils.sheet_add_aoa(sheet, [[getDate()]], {origin: {c: XLSX.utils.decode_col(lastColumn)+1, r: 0}});
+            XLSX.utils.sheet_add_aoa(inventorySheet, [[getDate()]], {origin: {c: XLSX.utils.decode_col(lastColumn)+1, r: 0}});
         }
-        ref = sheet['!ref'];
+        ref = inventorySheet['!ref'];
         lastColumn = ref.match(/:([a-zA-Z]+)/)[1];
     }
-    function findRowByAsin(ASIN) {
+    function findRowOf(ASIN, sheet) {
         var columnA = 'A';
         for (var i = 1, cell; cell = sheet[columnA + i]; i++) {
             if (cell.v == ASIN) {
@@ -300,25 +345,25 @@ function inventoryTest() {
         return null;
     }
     function generateHeaderLine() {
-        XLSX.utils.sheet_add_aoa(sheet, [['ASIN', 'CheckOrNot', getDate()]], {origin: 'A1'});
+        XLSX.utils.sheet_add_aoa(inventorySheet, [['ASIN', 'CheckOrNot', 'Comments', getDate()]], {origin: 'A1'});
     }
     function generateLineFor(ASIN) {
-        XLSX.utils.sheet_add_aoa(sheet, [[ASIN, 1]], {origin: -1});
-        sheet['A' + findLastRow()].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
+        XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1]], {origin: -1});
+        inventorySheet['A' + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
     }
-    function findLastRow() {
+    function findLastRowOf(sheet) {
         var ref = sheet['!ref'];
         var lastRow = ref.match(/:[a-zA-Z]+(\d+)/)[1];
         return lastRow;
     }
-    function insertQuantity2Sheet(ASIN, quantity) {
-        var row = findRowByAsin(ASIN);
+    function insertQuantity2InventorySheet(ASIN, quantity) {
+        var row = findRowOf(ASIN, inventorySheet);
         if (!row) {
             generateLineFor(ASIN);
         }
-        row = findRowByAsin(ASIN);
-        XLSX.utils.sheet_add_aoa(sheet, [[quantity]], {origin: lastColumn + row});
-        sheet[lastColumn + row].t = 'n';
+        row = findRowOf(ASIN, inventorySheet);
+        XLSX.utils.sheet_add_aoa(inventorySheet, [[quantity]], {origin: lastColumn + row});
+        inventorySheet[lastColumn + row].t = 'n';
     }
     function saveXlsx() {
         XLSX.writeFile(workbook, `Inventory${getDate()}.xlsx`);
