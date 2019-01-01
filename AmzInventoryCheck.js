@@ -33,6 +33,7 @@ function inventoryTest() {
         Window = document.getElementsByTagName('frame')[0].contentWindow;
         Document = Window.document;
         showModal();
+        prevTimeStamp = null;
         injectModule('https://unpkg.com/xlsx/dist/xlsx.full.min.js', function() {
             log('xlsx injected');
             logData('Ready!');
@@ -144,7 +145,13 @@ function inventoryTest() {
     function move2cartAndCheckInventory() {
         /* move to cart */
         while(products2Check.length) {
-            logData(`${products2Check.length} products remaining`);
+            var estimatedEndTime = null;
+            var now = new Date();
+            if (prevTimeStamp) {
+                estimatedEndTime = new Date(now.getTime() + products2Check.length * (now - prevTimeStamp));
+            }
+            prevTimeStamp = now;
+            logData(`${products2Check.length} products remaining, Estimated end time: ${estimatedEndTime?estimatedEndTime.toLocaleTimeString():null}`);
             var product = products2Check.pop();
             var ASIN = product.getAttribute('data-asin');
             if (weWant2Delete(ASIN)) {
@@ -226,7 +233,7 @@ function inventoryTest() {
                                         } else {
                                             quantity = quantityBox.value;
                                         }
-                                        logData(`ASIN ${ASIN}, quantity ${quantity}`);
+                                        log(`ASIN ${ASIN}, quantity ${quantity}`);
                                         insertQuantity2InventorySheet(ASIN, quantity);
                                         /* next product */
                                         saveAllForLater(move2cartAndCheckInventory);
@@ -240,7 +247,7 @@ function inventoryTest() {
             insertQuantity2InventorySheet(ASIN, 0);
         }
         /* all listings have been checked, move ASINs which CheckOrNot flag is not set to backlogSheet */
-        for (let row = 1, lastRow = findLastRowOf(inventorySheet); row <= lastRow; row++) {
+        for (let row = 2, lastRow = findLastRowOf(inventorySheet); row <= lastRow; row++) {
             let theAsin = inventorySheet[theColumnForAsin + row].v;
             if (weWant2Delete(theAsin)) {
                 move2backlog(theAsin);
@@ -353,11 +360,29 @@ function inventoryTest() {
         }
         return null;
     }
+    function getTitle(ASIN) {
+        log(`title: `);
+        var theProduct = Document.querySelectorAll(`[data-asin=${ASIN}]`);
+        if (theProduct.length) {
+            theProduct = theProduct[0];
+        } else {
+            return null;
+        }
+        var theTitle = theProduct.getElementsByClassName('sc-product-title');
+        if (theTitle.length) {
+            theTitle = theTitle[0].innerText;
+        } else {
+            return null;
+        };
+        log(theTitle);
+        return theTitle;
+    }
     function generateHeaderLine() {
         XLSX.utils.sheet_add_aoa(inventorySheet, [['ASIN', 'CheckOrNot', 'Comments', getDate()]], {origin: 'A1'});
     }
     function generateLineFor(ASIN) {
-        XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1]], {origin: -1});
+        var title = getTitle(ASIN);
+        XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1, title]], {origin: -1});
         inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
     }
     function findLastRowOf(sheet) {
@@ -373,6 +398,9 @@ function inventoryTest() {
         row = findRowOf(ASIN, inventorySheet);
         XLSX.utils.sheet_add_aoa(inventorySheet, [[quantity]], {origin: lastColumn + row});
         inventorySheet[lastColumn + row].t = 'n';
+        if (inventorySheet[theColumnForComments+row] == null) {
+            XLSX.utils.sheet_add_aoa(inventorySheet, [[getTitle(ASIN)]], {origin: theColumnForComments + row});
+        }
     }
     function saveXlsx() {
         XLSX.writeFile(workbook, `Inventory${getDate()}.xlsx`);
