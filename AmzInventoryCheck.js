@@ -85,7 +85,7 @@ function inventoryTest() {
     }
     function weWant2Delete(ASIN) {
         var row = findRowOf(ASIN, inventorySheet);
-        if (row && inventorySheet['B' + row].v != '1') {
+        if (row && inventorySheet[theColumnForCheckOrNot + row].v != '1') {
             return true;
         }
         return false;
@@ -239,6 +239,13 @@ function inventoryTest() {
             log(`Move to Cart button not found for ${ASIN}`);
             insertQuantity2InventorySheet(ASIN, 0);
         }
+        /* all listings have been checked, move ASINs which CheckOrNot flag is not set to backlogSheet */
+        for (let row = 1, lastRow = findLastRowOf(inventorySheet); row <= lastRow; row++) {
+            let theAsin = inventorySheet[theColumnForAsin + row].v;
+            if (weWant2Delete(theAsin)) {
+                move2backlog(theAsin);
+            }
+        }
         logData(`mission complete!`);
         saveXlsx();
     }
@@ -334,10 +341,12 @@ function inventoryTest() {
         }
         ref = inventorySheet['!ref'];
         lastColumn = ref.match(/:([a-zA-Z]+)/)[1];
+        theColumnForAsin = 'A';
+        theColumnForCheckOrNot = 'B';
+        theColumnForComments = 'C';
     }
     function findRowOf(ASIN, sheet) {
-        var columnA = 'A';
-        for (var i = 1, cell; cell = sheet[columnA + i]; i++) {
+        for (var i = 1, cell; cell = sheet[theColumnForAsin + i]; i++) {
             if (cell.v == ASIN) {
                 return i;
             }
@@ -349,7 +358,7 @@ function inventoryTest() {
     }
     function generateLineFor(ASIN) {
         XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1]], {origin: -1});
-        inventorySheet['A' + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
+        inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
     }
     function findLastRowOf(sheet) {
         var ref = sheet['!ref'];
