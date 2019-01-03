@@ -253,10 +253,13 @@ function inventoryTest() {
             insertQuantity2InventorySheet(ASIN, 0);
         }
         /* all listings have been checked, move ASINs which CheckOrNot flag is not set to backlogSheet */
-        for (let row = 2, lastRow = findLastRowOf(inventorySheet); row <= lastRow; row++) {
+        for (let row = 2, lastRow = findLastRowOf(inventorySheet); row <= lastRow;) {
             let theAsin = inventorySheet[theColumnForAsin + row].v;
             if (weWant2Delete(theAsin)) {
                 move2backlog(theAsin);
+                lastRow = findLastRowOf(inventorySheet);
+            } else {
+                row++;
             }
         }
         logData(`mission complete!`);
