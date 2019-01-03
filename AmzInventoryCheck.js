@@ -57,7 +57,7 @@ function inventoryTest() {
                     whenMotionDone(
                         ()=>{
                             var overwrap = listing.getElementsByClassName('sc-list-item-overwrap')[0];
-                            if(overwrap.style.display == 'none') {
+                            if(!overwrap || overwrap.style.display == 'none') {
                                 return true;
                             }
                             return false;
@@ -86,10 +86,16 @@ function inventoryTest() {
     }
     function weWant2Delete(ASIN) {
         var row = findRowOf(ASIN, inventorySheet);
-        if (row && inventorySheet[theColumnForCheckOrNot + row].v != '1') {
-            return true;
+        var theCell = null;
+        if (row) {
+            theCell = inventorySheet[theColumnForCheckOrNot + row];
+        } else {
+            return false;
         }
-        return false;
+        if (theCell && theCell.v == '1') {
+            return false;
+        }
+        return true;
     }
     function deleteRow(row, sheet) {
         var range = XLSX.utils.decode_range(sheet["!ref"]);
@@ -315,10 +321,18 @@ function inventoryTest() {
                 var firstSheetName = workbook.SheetNames[0]; /* Get worksheet */
                 var secondSheetName = workbook.SheetNames[1]; /* Get worksheet */
                 inventorySheet = workbook.Sheets[firstSheetName];
-                backlogSheet = workbook.Sheets[secondSheetName];
-                if (!backlogSheet) {
+                log(`inventorySheet:${firstSheetName}, backlogSheet:${secondSheetName}`);
+                if (!secondSheetName) {
                     backlogSheet = XLSX.utils.aoa_to_sheet([[]]);
                     XLSX.utils.book_append_sheet(workbook, backlogSheet, 'backlog');
+                    generateHeaderLine(backlogSheet);
+                } else if (secondSheetName != 'backlog'){
+                    backlogSheet = XLSX.utils.aoa_to_sheet([[]]);
+                    workbook.SheetNames[1] = 'backlog';
+                    workbook.Sheets['backlog'] = backlogSheet;
+                    generateHeaderLine(backlogSheet);
+                } else {
+                    backlogSheet = workbook.Sheets[secondSheetName];
                 }
                 if (inventorySheet && backlogSheet) {
                     logData('Running!');
@@ -331,16 +345,16 @@ function inventoryTest() {
             reader.readAsBinaryString(f);
         }
     }
-    function isInventorySheetEmpty() {
-        if(inventorySheet['!ref'] == undefined) {
+    function isSheetEmpty(sheet) {
+        if(sheet['!ref'] == undefined) {
             /* the inventorySheet is empty */
             log(`the file is empty`);
             return true;
         }
     }
     function initInventorySheet() {
-        if(isInventorySheetEmpty()) {
-            generateHeaderLine();
+        if(isSheetEmpty(inventorySheet)) {
+            generateHeaderLine(inventorySheet);
         } else {
             var ref = inventorySheet['!ref'];
             lastColumn = ref.match(/:([a-zA-Z]+)/)[1];
@@ -353,8 +367,10 @@ function inventoryTest() {
         theColumnForComments = 'C';
     }
     function findRowOf(ASIN, sheet) {
-        for (var i = 1, cell; cell = sheet[theColumnForAsin + i]; i++) {
-            if (cell.v == ASIN) {
+        var theLastRow = findLastRowOf(sheet);
+        for (var i = 1, cell; i <= theLastRow; i++) {
+            cell = sheet[theColumnForAsin + i];
+            if (cell != null && cell.v == ASIN) {
                 return i;
             }
         }
@@ -377,13 +393,13 @@ function inventoryTest() {
         log(theTitle);
         return theTitle;
     }
-    function generateHeaderLine() {
-        XLSX.utils.sheet_add_aoa(inventorySheet, [['ASIN', 'CheckOrNot', 'Comments', getDate()]], {origin: 'A1'});
+    function generateHeaderLine(sheet) {
+        XLSX.utils.sheet_add_aoa(sheet, [['ASIN', 'CheckOrNot', 'Comments', getDate()]], {origin: 'A1'});
     }
     function generateLineFor(ASIN) {
         var title = getTitle(ASIN);
         XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1, title]], {origin: -1});
-        inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}`};
+        inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}?th=1&psc=1`};
     }
     function findLastRowOf(sheet) {
         var ref = sheet['!ref'];
@@ -398,9 +414,6 @@ function inventoryTest() {
         row = findRowOf(ASIN, inventorySheet);
         XLSX.utils.sheet_add_aoa(inventorySheet, [[quantity]], {origin: lastColumn + row});
         inventorySheet[lastColumn + row].t = 'n';
-        if (inventorySheet[theColumnForComments+row] == null) {
-            XLSX.utils.sheet_add_aoa(inventorySheet, [[getTitle(ASIN)]], {origin: theColumnForComments + row});
-        }
     }
     function saveXlsx() {
         XLSX.writeFile(workbook, `Inventory${getDate()}.xlsx`);
