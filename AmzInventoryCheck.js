@@ -254,7 +254,14 @@ function inventoryTest() {
         }
         /* all listings have been checked, move ASINs which CheckOrNot flag is not set to backlogSheet */
         for (let row = 2, lastRow = findLastRowOf(inventorySheet); row <= lastRow;) {
-            let theAsin = inventorySheet[theColumnForAsin + row].v;
+            let theAsin = inventorySheet[theColumnForAsin + row];
+            if (theAsin) {
+                theAsin = theAsin.v;
+            } else {
+                log(`${theColumnForAsin + row} is not defined`);
+                row++;
+                continue;
+            }
             if (weWant2Delete(theAsin)) {
                 move2backlog(theAsin);
                 lastRow = findLastRowOf(inventorySheet);
@@ -319,7 +326,9 @@ function inventoryTest() {
             reader.onload = function(e) {
                 var data = e.target.result; /* if binary string, read with type 'binary' */
                 workbook = XLSX.read(data, {
-                    type: 'binary'
+                    type: 'binary',
+                    cellStyles: true,
+                    cellDates: true,
                 });
                 var firstSheetName = workbook.SheetNames[0]; /* Get worksheet */
                 var secondSheetName = workbook.SheetNames[1]; /* Get worksheet */
@@ -402,7 +411,7 @@ function inventoryTest() {
     function generateLineFor(ASIN) {
         var title = getTitle(ASIN);
         XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1, title]], {origin: -1});
-        inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}?th=1&psc=1`};
+        inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}?th=1\&psc=1`};
     }
     function findLastRowOf(sheet) {
         var ref = sheet['!ref'];
