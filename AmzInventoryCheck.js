@@ -410,7 +410,12 @@ function inventoryTest() {
     }
     function generateLineFor(ASIN) {
         var title = getTitle(ASIN);
-        XLSX.utils.sheet_add_aoa(inventorySheet, [[ASIN, 1, title]], {origin: -1});
+        var range = XLSX.utils.decode_range(inventorySheet["!ref"]);
+        var row = [ASIN, 1, title];
+        for(var C = row.length; C < range.e.c; ++C){
+            row.push('-');
+        }
+        XLSX.utils.sheet_add_aoa(inventorySheet, [row], {origin: -1});
         inventorySheet[theColumnForAsin + findLastRowOf(inventorySheet)].l = {Target: `https://www.amazon.com/dp/${ASIN}?th=1\&psc=1`};
     }
     function findLastRowOf(sheet) {
